@@ -1,0 +1,13 @@
+
+
+.container {
+  width: 1400px;
+  margin: auto;
+}
+
+
+#root,
+body,
+html {
+  min-height: 100%;
+}

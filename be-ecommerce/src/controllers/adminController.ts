@@ -1,0 +1,477 @@
+import bcrypt from "bcryptjs";
+import { Request, Response } from "express";
+
+import userModel from "../models/userModel";
+import accountModel from "../models/accountModel";
+
+import accountValidation from "../validation/accountValidation";
+import {
+  userValidation,
+  updateUserValidation,
+} from "../validation/userValidation";
+
+import AccountType from "../types/AccountType";
+import { CreateUserType, UpdateUserType } from "../types/UserType";
+import { parseDateRange } from "../utils/parseDateRange";
+import { getPaginationParams, buildPaginatedResponse } from "../utils/paginate";
+
+const createAccount = async (req: Request, res: Response) => {
+  try {
+    const { name, phone, email, password, roleId } = req.body || {};
+
+    const accountVali = accountValidation({
+      name,
+      phone,
+      email,
+      password,
+      roleId,
+    });
+
+    if (Object.keys(accountVali).length > 0) {
+      return res.status(404).json(accountVali);
+    }
+
+    const emailExist = await accountModel.checkEmail(email);
+
+    if (emailExist) {
+      return res.status(500).json({ message: "Trùng email" });
+    }
+
+    const nameExist = await accountModel.checkName(name);
+
+    if (nameExist) {
+      return res.status(500).json({ message: "Trùng name" });
+    }
+
+    const intRoleId = parseInt(roleId);
+
+    const passwordCrypto = await bcrypt.hash(String(password), 10);
+
+    const account = await accountModel.createAccount({
+      name,
+      email,
+      phone,
+      password: passwordCrypto,
+      roleId: intRoleId,
+    });
+
+    res.status(200).json({
+      message: "Tạo tài khoản thành công",
+      data: account,
+      type: "success",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const updateAccountById = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+
+    const accountExist = await accountModel.findAccountById(id);
+
+    if (!accountExist) {
+      return res
+        .status(404)
+        .json({ message: "User không tồn tại", type: "error" });
+    }
+
+    const { name, email, password, roleId } = req.body || {};
+
+    const file = req.file;
+
+    if (email) {
+      const emailExist = await accountModel.checkEmailExcludeId(email, id);
+
+      if (emailExist) {
+        return res.status(400).json({ message: "Trùng email", type: "error" });
+      }
+    }
+
+    if (name) {
+      const nameExist = await accountModel.checkNameExcludeId(name, id);
+
+      if (nameExist) {
+        return res.status(400).json({ message: "Trùng name", type: "error" });
+      }
+    }
+
+    const dataUpdate: Partial<AccountType> = {};
+
+    if (file) dataUpdate.avatar = file.path;
+    if (name !== undefined) dataUpdate.name = name;
+    if (email !== undefined) dataUpdate.email = email;
+    if (roleId !== undefined) dataUpdate.roleId = Number(roleId);
+    if (password !== undefined) {
+      dataUpdate.password = await bcrypt.hash(password, 10);
+    }
+
+    if (Object.keys(dataUpdate).length === 0) {
+      return res
+        .status(400)
+        .json({ message: "Không có dữ liệu để cập nhật", type: "error" });
+    }
+
+    const account = await accountModel.updateAccountById(id, dataUpdate);
+
+    res.status(200).json({
+      message: "Cập nhật tài khoản thành công",
+      data: account,
+      type: "success",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const deleteAccountById = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+
+    const accountExist = await accountModel.findAccountById(id);
+    if (!accountExist) {
+      return res
+        .status(404)
+        .json({ message: "User không tồn tại", type: "error" });
+    }
+
+    await accountModel.deleteAccountById(id);
+
+    const remainingAccounts = await accountModel.getAccounts();
+
+    res.status(200).json({
+      message: "Xóa tài khoản thành công",
+      data: remainingAccounts,
+      type: "success",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const getAccounts = async (req: Request, res: Response) => {
+  try {
+    const { page, limit, skip } = getPaginationParams(req.query);
+    const search = req.query.search as string | undefined;
+
+    const { data, total } = await accountModel.getAccounts(search, skip, limit);
+
+    res.status(200).json({
+      message: "Lấy dữ liệu tài khoản thành công",
+      type: "success",
+      ...buildPaginatedResponse(data, total, page, limit),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const createUser = async (req: Request, res: Response) => {
+  try {
+    const { name, email, password, phone, address, avatar } = req.body || {};
+
+    const userData: CreateUserType = {
+      name,
+      email,
+      password,
+      phone,
+      address,
+      avatar,
+    };
+
+    const errors = userValidation(userData);
+    if (Object.keys(errors).length > 0) {
+      return res
+        .status(400)
+        .json({ message: "Dữ liệu không hợp lệ", data: errors, type: "error" });
+    }
+
+    const existingEmail = await userModel.getUserByEmail(email);
+    if (existingEmail) {
+      return res
+        .status(400)
+        .json({ message: "Email đã tồn tại", type: "error" });
+    }
+
+    const existingName = await userModel.getUserByName(name);
+    if (existingName) {
+      return res
+        .status(400)
+        .json({ message: "Name đã tồn tại", type: "error" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    userData.password = hashedPassword;
+
+    const user = await userModel.createUser(userData);
+    return res.status(201).json({
+      message: "Tạo người dùng thành công",
+      data: user,
+      type: "success",
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const getAllUsers = async (req: Request, res: Response) => {
+  try {
+    const { page, limit, skip } = getPaginationParams(req.query);
+    const search = req.query.search as string | undefined;
+
+    const { data, total } = await userModel.getAllUsers(search, skip, limit);
+
+    return res.status(200).json({
+      message: "Lấy danh sách người dùng thành công",
+      type: "success",
+      ...buildPaginatedResponse(data, total, page, limit),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const getUserById = async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({ message: "ID người dùng không hợp lệ", type: "error" });
+    }
+
+    const user = await userModel.getUserById(id);
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ message: "Không tìm thấy người dùng", type: "error" });
+    }
+
+    return res.status(200).json({
+      message: "Lấy thông tin người dùng thành công",
+      data: user,
+      type: "success",
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const updateUserById = async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({ message: "ID người dùng không hợp lệ", type: "error" });
+    }
+
+    const existingUser = await userModel.getUserById(id);
+    if (!existingUser) {
+      return res
+        .status(404)
+        .json({ message: "Không tìm thấy người dùng", type: "error" });
+    }
+
+    const { name, phone, address, email, avatar, points, description, type } =
+      req.body || {};
+
+    const existingName = await userModel.checkNameExcludeId(name, id);
+
+    if (!existingName) {
+      return res
+        .status(400)
+        .json({ message: "Name đã tồn tại", type: "error" });
+    }
+
+    if (existingUser.points < 0 && points < 0) {
+      return res
+        .status(400)
+        .json({ message: "không thể giảm point đi nữa", type: "error" });
+    }
+
+    const updateData: UpdateUserType = {};
+
+    if (name !== undefined) updateData.name = name;
+    if (phone !== undefined) updateData.phone = phone;
+    if (email !== undefined) updateData.email = email;
+    if (address !== undefined) updateData.address = address;
+    if (avatar !== undefined) updateData.avatar = avatar;
+    if (points !== undefined) updateData.points = points;
+    if (description !== undefined) updateData.description = description;
+    if (type !== undefined) updateData.type = type;
+
+    if (Object.keys(updateData).length === 0) {
+      return res
+        .status(400)
+        .json({ message: "Không có dữ liệu để cập nhật", type: "error" });
+    }
+
+    const errors = updateUserValidation(updateData);
+    if (Object.keys(errors).length > 0) {
+      return res
+        .status(400)
+        .json({ message: "Dữ liệu không hợp lệ", errors, type: "error" });
+    }
+
+    const user = await userModel.updateUserById(id, updateData);
+    return res.status(200).json({
+      message: "Cập nhật người dùng thành công",
+      data: user,
+      type: "success",
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const deleteUserById = async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({ message: "ID người dùng không hợp lệ", type: "error" });
+    }
+
+    const existingUser = await userModel.getUserById(id);
+    if (!existingUser) {
+      return res
+        .status(404)
+        .json({ message: "Không tìm thấy người dùng", type: "error" });
+    }
+
+    await userModel.deleteUserById(id);
+    return res
+      .status(200)
+      .json({ message: "Xóa người dùng thành công", type: "success" });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Lỗi server", type: "error" });
+  }
+};
+
+const searchUser = async (req: Request, res: Response) => {
+  try {
+    const nameUser = req.query.nameUser as string;
+
+    if (!nameUser) {
+      return res.status(400).json({
+        message: "Không có tên người dùng cần tìm",
+        type: "error",
+      });
+    }
+
+    const users = await userModel.searchUser(nameUser);
+
+    return res.status(200).json({
+      message: "Tìm kiếm thành công",
+      type: "success",
+      data: users,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      message: "Lỗi server",
+      type: "error",
+    });
+  }
+};
+
+const getTotalUsers = async (req: Request, res: Response) => {
+  try {
+    const { start, end } = parseDateRange(req.query);
+
+    const users = await userModel.getTotalUsers(start, end);
+
+    res.json({
+      message: "Lấy số lượng user thành công",
+      data: users,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+const toggleUserActive = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    if (typeof isActive !== "boolean") {
+      res.status(400).json({ message: "isActive phải là boolean" });
+      return;
+    }
+
+    const user = await userModel.toggleUserActive(Number(id), isActive);
+
+    res.status(200).json({
+      message: isActive
+        ? "Mở khóa tài khoản thành công"
+        : "Khóa tài khoản thành công",
+      data: user,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+const toggleAccountActive = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    if (typeof isActive !== "boolean") {
+      res.status(400).json({ message: "isActive phải là boolean" });
+      return;
+    }
+
+    const account = await accountModel.toggleAccountActive(
+      Number(id),
+      isActive,
+    );
+
+    res.status(200).json({
+      message: isActive
+        ? "Mở khóa tài khoản thành công"
+        : "Khóa tài khoản thành công",
+      data: account,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};
+
+const adminController = {
+  createUser,
+  searchUser,
+  getAccounts,
+  getUserById,
+  getAllUsers,
+  getTotalUsers,
+  createAccount,
+  updateUserById,
+  deleteUserById,
+  toggleUserActive,
+  updateAccountById,
+  deleteAccountById,
+  toggleAccountActive,
+};
+
+export default adminController;
