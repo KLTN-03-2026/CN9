@@ -173,29 +173,176 @@ const verifyEmail = async (req: Request, res: Response) => {
     const { token } = req.query;
 
     if (!token || typeof token !== "string") {
-      return res.status(400).json({ message: "Token không hợp lệ", type: "error" });
+      return res
+        .status(400)
+        .json({ message: "Token không hợp lệ", type: "error" });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as jwt.JwtPayload;
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET!,
+    ) as jwt.JwtPayload;
 
     const user = await userModel.getUserById(decoded.userId);
 
     if (!user) {
-      return res.status(404).json({ message: "Không tìm thấy người dùng", type: "error" });
+      return res
+        .status(404)
+        .json({ message: "Không tìm thấy người dùng", type: "error" });
     }
 
     if (user.is_verifyEmail) {
-      return res.status(400).json({ message: "Email đã được xác minh trước đó", type: "error" });
+      return res
+        .status(400)
+        .json({ message: "Email đã được xác minh trước đó", type: "error" });
     }
 
     await userModel.verifyUserEmail(decoded.userId);
 
-    return res.status(200).json({ message: "Xác minh email thành công", type: "success" });
+    return res
+      .status(200)
+      .json({ message: "Xác minh email thành công", type: "success" });
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
-      return res.status(400).json({ message: "Link xác minh đã hết hạn", type: "error" });
+      return res
+        .status(400)
+        .json({ message: "Link xác minh đã hết hạn", type: "error" });
     }
-    return res.status(400).json({ message: "Token không hợp lệ", type: "error" });
+    return res
+      .status(400)
+      .json({ message: "Token không hợp lệ", type: "error" });
+  }
+};
+
+const googleCallback = (req: Request, res: Response) => {
+  try {
+    const user = (req as AuthenticatedRequest).user!;
+
+    if (!user) {
+      return res.redirect(
+        `${process.env.CLIENT_URL}/login?error=google_failed`,
+      );
+    }
+
+    const token = createJWTUser(
+      user.id,
+      user.name,
+      user.avatar ?? "",
+      user.points,
+      user.email,
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 15 * 60 * 60 * 1000,
+    });
+
+    // Redirect về frontend kèm thông tin user qua query string
+    const params = new URLSearchParams({
+      id: String(user.id),
+      username: user.name,
+      avatar: user.avatar ?? "",
+      points: String(user.points),
+      email: user.email,
+    });
+
+    return res.redirect(
+      `${process.env.CLIENT_URL}/login/callback?${params.toString()}`,
+    );
+  } catch (error) {
+    console.error("Google callback error:", error);
+    return res.redirect(`${process.env.CLIENT_URL}/login?error=server_error`);
+  }
+};
+
+const googleRegisterCallback = (req: Request, res: Response) => {
+  try {
+    const user = (req as AuthenticatedRequest).user!;
+
+    if (!user) {
+      return res.redirect(
+        `${process.env.CLIENT_URL}/register?error=google_failed`,
+      );
+    }
+
+    const token = createJWTUser(
+      user.id,
+      user.name,
+      user.avatar ?? "",
+      user.points,
+      user.email,
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 15 * 60 * 60 * 1000,
+    });
+
+    // Redirect về frontend register success page kèm thông tin user qua query string
+    const params = new URLSearchParams({
+      id: String(user.id),
+      username: user.name,
+      avatar: user.avatar ?? "",
+      points: String(user.points),
+      email: user.email,
+      message: "register_success",
+    });
+
+    return res.redirect(
+      `${process.env.CLIENT_URL}/register/success?${params.toString()}`,
+    );
+  } catch (error) {
+    console.error("Google register callback error:", error);
+    return res.redirect(`${process.env.CLIENT_URL}/register?error=server_error`);
+  }
+};
+
+const googleAdminCallback = async (req: Request, res: Response) => {
+  try {
+    const user = (req as AuthenticatedRequest).user!;
+
+    if (!user) {
+      return res.redirect(
+        `${process.env.CLIENT_URL}/login?error=google_failed`,
+      );
+    }
+
+    // Check if user has admin role or permission
+    // For now, we'll allow any Google user to login as admin
+    // In production, you should check against Account table with admin roles
+    const token = createJWTAccount(
+      user.id,
+      user.name,
+      "admin", // Default role for Google admin login
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 15 * 60 * 60 * 1000,
+    });
+
+    // Redirect about admin frontend kèm thông tin account qua query string
+    const params = new URLSearchParams({
+      id: String(user.id),
+      username: user.name,
+      role: "admin",
+      email: user.email,
+    });
+
+    return res.redirect(
+      `${process.env.ADMIN_CLIENT_URL || process.env.CLIENT_URL}/login/admin/callback?${params.toString()}`,
+    );
+  } catch (error) {
+    console.error("Google admin callback error:", error);
+    return res.redirect(
+      `${process.env.ADMIN_CLIENT_URL || process.env.CLIENT_URL}/login?error=server_error`,
+    );
   }
 };
 
@@ -206,6 +353,9 @@ const authController = {
   getInfoUser,
   loginAccount,
   getInfoAccount,
+  googleCallback,
+  googleRegisterCallback,
+  googleAdminCallback,
 };
 
 export default authController;

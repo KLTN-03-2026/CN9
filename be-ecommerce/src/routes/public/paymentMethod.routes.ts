@@ -8,10 +8,6 @@ const router = Router();
 
 router.get("/", verifyToken, paymentMethodController.getAllPaymentMethods);
 
-router.get(
-  "/active",
-  verifyToken,
-  paymentMethodController.getActivePaymentMethods,
-);
+router.get("/active", paymentMethodController.getActivePaymentMethods);
 
 export default router;

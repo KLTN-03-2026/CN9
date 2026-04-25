@@ -1,6 +1,9 @@
 import { Request, Response } from "express";
 import productModel from "../models/productModel";
-import ProductType, { ProductVariantType } from "../types/ProductType";
+import ProductType, {
+  ProductVariantType,
+  SortType,
+} from "../types/ProductType";
 import slugify from "slugify";
 import { AuthenticatedRequest } from "../types/express";
 import { getPaginationParams, buildPaginatedResponse } from "../utils/paginate";
@@ -34,12 +37,16 @@ const createProduct = async (req: Request, res: Response) => {
   }
 };
 
-const  getAllProducts = async (req: Request, res: Response) => {
+const getAllProducts = async (req: Request, res: Response) => {
   try {
     const { page, limit, skip } = getPaginationParams(req.query);
     const search = req.query.search as string | undefined;
 
-    const { data, total } = await productModel.getAllProducts(search, skip, limit);
+    const { data, total } = await productModel.getAllProducts(
+      search,
+      skip,
+      limit,
+    );
 
     return res.status(200).json({
       type: "success",
@@ -50,15 +57,31 @@ const  getAllProducts = async (req: Request, res: Response) => {
     console.error(error);
     return res.status(500).json({ message: "Lỗi server", type: "error" });
   }
-};;
+};
 
 const getFeaturedProducts = async (req: Request, res: Response) => {
   try {
-    const featuredProducts = await productModel.getFeaturedProducts();
+    const { page, limit, skip } = getPaginationParams(req.query);
+    const { minPrice, maxPrice, color, size, sort } = req.query;
+
+    const filters = {
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
+      color: color ? Number(color) : undefined,
+      size: size ? Number(size) : undefined,
+    };
+
+    const { data, total } = await productModel.getFeaturedProducts(
+      skip,
+      limit,
+      filters,
+      sort as SortType,
+    );
 
     res.status(200).json({
       message: "Lấy các sản phẩm nỗi bật thành công",
-      data: featuredProducts,
+      type: "success",
+      ...buildPaginatedResponse(data, total, page, limit),
     });
   } catch (error) {
     console.error(error);
@@ -88,15 +111,31 @@ const getProductBySlug = async (req: Request, res: Response) => {
 
 const getSaleProducts = async (req: Request, res: Response) => {
   try {
-    const products = await productModel.getSaleProducts();
+    const { page, limit, skip } = getPaginationParams(req.query);
 
-    if (!products) {
+    const { minPrice, maxPrice, color, size, sort } = req.query;
+
+    const filters = {
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
+      color: color ? Number(color) : undefined,
+      size: size ? Number(size) : undefined,
+    };
+    const { data, total } = await productModel.getSaleProducts(
+      skip,
+      limit,
+      filters,
+      sort as SortType,
+    );
+
+    if (!data) {
       return res.status(404).json({ message: "không có sản phẩm" });
     }
 
     res.status(200).json({
       message: "Lấy các sản phẩm đang sale thành công",
-      data: products,
+      type: "success",
+      ...buildPaginatedResponse(data, total, page, limit),
     });
   } catch (error) {
     console.error(error);

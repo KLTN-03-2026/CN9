@@ -1,0 +1,21 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const orderController_1 = __importDefault(require("../../controllers/orderController"));
+const verifyToken_1 = __importDefault(require("../../middlewares/verifyToken"));
+const checkRole_1 = require("../../middlewares/checkRole");
+const router = (0, express_1.Router)();
+router.get("/sold-products", verifyToken_1.default, orderController_1.default.getTotalSoldProducts);
+router.get("/count", verifyToken_1.default, orderController_1.default.getTotalOrders);
+router.get("/latest-pending", verifyToken_1.default, orderController_1.default.getLatestPendingOrders);
+router.get("/", verifyToken_1.default, (0, checkRole_1.checkRole)(["admin"]), orderController_1.default.getAllOrders);
+router.post("/", verifyToken_1.default, (0, checkRole_1.checkRole)(["admin"]), orderController_1.default.createOrder);
+router.get("/:orderId", verifyToken_1.default, orderController_1.default.getOrderById);
+router.patch("/:orderId", verifyToken_1.default, (0, checkRole_1.checkRole)(["admin"]), orderController_1.default.updateOrderStatusById);
+router.patch("/:orderId/cancel", verifyToken_1.default, (0, checkRole_1.checkRole)(["admin"]), orderController_1.default.cancelOrderByAdmin);
+router.put("/:id", verifyToken_1.default, (0, checkRole_1.checkRole)(["admin"]), orderController_1.default.updateOrderById);
+router.delete("/:id", verifyToken_1.default, (0, checkRole_1.checkRole)(["admin"]), orderController_1.default.deleteOrderById);
+exports.default = router;

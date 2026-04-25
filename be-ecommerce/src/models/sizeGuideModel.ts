@@ -102,12 +102,15 @@ const getSizeGuideByCategory = async (categoryId: number) => {
 
       if (!result[measurementName]) {
         result[measurementName] = {
-          id: m.id,
           measurementType: measurementName,
         };
       }
 
-      result[measurementName][sizeSymbol] = `${m.min} - ${m.max}`;
+      result[measurementName][sizeSymbol] = {
+        id: m.id,
+        min: m.min,
+        max: m.max,
+      };
     });
   });
 

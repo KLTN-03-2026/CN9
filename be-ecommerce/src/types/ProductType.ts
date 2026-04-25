@@ -1,5 +1,7 @@
 import { Season } from "../generated/prisma";
 
+export type SortType = "price_asc" | "price_desc" | "best_seller" | "newest";
+
 export default interface CreateProductType {
   name_product: string;
   description: string;

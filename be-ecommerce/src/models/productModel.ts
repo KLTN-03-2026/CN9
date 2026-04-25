@@ -1,7 +1,21 @@
 import prisma from "../PrismaClient";
-import CreateProductType from "../types/ProductType";
+import CreateProductType, { SortType } from "../types/ProductType";
 import ProductType, { ProductVariantType } from "../types/ProductType";
 import { parseImageJson } from "../utils/parseImageJson";
+
+type FilterType = {
+  minPrice?: number;
+  maxPrice?: number;
+  color?: number;
+  size?: number;
+};
+
+const sortMap: Record<SortType, any> = {
+  price_asc: { price: "asc" },
+  price_desc: { price: "desc" },
+  best_seller: { sold: "desc" },
+  newest: { createdAt: "desc" },
+};
 
 const createProduct = async (data: CreateProductType) =>
   await prisma.product.create({
@@ -45,13 +59,15 @@ const getAllProducts = async (search?: string, skip = 0, take = 10) => {
   ]);
 
   return {
-    data: products.map(({ name_product, category, status, variants, ...rest }) => ({
-      ...rest,
-      name: name_product,
-      category: { id: category?.id, name: category?.name_category },
-      status: { id: status?.id, name: status?.name, hex: status?.hex },
-      sumStock: variants.reduce((sum, v) => sum + v.stock, 0),
-    })),
+    data: products.map(
+      ({ name_product, category, status, variants, ...rest }) => ({
+        ...rest,
+        name: name_product,
+        category: { id: category?.id, name: category?.name_category },
+        status: { id: status?.id, name: status?.name, hex: status?.hex },
+        sumStock: variants.reduce((sum, v) => sum + v.stock, 0),
+      }),
+    ),
     total,
   };
 };
@@ -93,105 +109,129 @@ const deleteProductById = async (id: number) =>
     where: { id },
   });
 
-const getFeaturedProducts = async (sort: string = "newest") => {
-  const products = await prisma.product.findMany({
-    select: {
-      id: true,
-      name_product: true,
-      description: true,
-      image_url: true,
-      slug: true,
-      price: true,
-      createdAt: true,
-      category: { select: { name_category: true } },
-      variants: {
-        select: {
-          id: true,
-          image_url: true,
-          color: { select: { id: true, hex: true, name_color: true } },
-          size: { select: { id: true, Symbol: true } },
-          stock: true,
+const getFeaturedProducts = async (
+  skip = 0,
+  take = 10,
+  filters: FilterType,
+  sort: SortType,
+) => {
+  const orderBy =
+    sort && sort in sortMap ? sortMap[sort as SortType] : { createdAt: "desc" };
+
+  const { minPrice, maxPrice, color, size } = filters;
+
+  const [products, total] = await Promise.all([
+    prisma.product.findMany({
+      where: {
+        price: { gte: minPrice ?? 0, lte: maxPrice ?? 999999999 },
+        ...(color || size
+          ? {
+              variants: {
+                some: {
+                  ...(color && { colorId: color }),
+                  ...(size && { sizeId: size }),
+                },
+              },
+            }
+          : {}),
+      },
+      skip,
+      take,
+      select: {
+        id: true,
+        name_product: true,
+        description: true,
+        image_url: true,
+        slug: true,
+        price: true,
+        createdAt: true,
+        category: { select: { name_category: true } },
+        variants: {
+          where: { colorId: { equals: color }, sizeId: { equals: size } },
+          select: {
+            id: true,
+            image_url: true,
+            color: { select: { id: true, hex: true, name_color: true } },
+            size: { select: { id: true, Symbol: true } },
+            stock: true,
+          },
+        },
+        sale: {
+          select: {
+            discount_type: true,
+            discount_value: true,
+          },
         },
       },
-      sale: {
-        select: {
-          discount_type: true,
-          discount_value: true,
+      orderBy,
+    }),
+    prisma.product.count(),
+  ]);
+
+  return {
+    data: products.map((pro) => {
+      const colorMap = new Map<number, any>();
+      pro.variants.forEach((v) => {
+        if (v.color && !colorMap.has(v.color.id)) {
+          colorMap.set(v.color.id, v.color);
+        }
+      });
+      const colors = Array.from(colorMap.values());
+
+      const sizeMap = new Map<number, any>();
+      pro.variants.forEach((v) => {
+        if (v.size && !sizeMap.has(v.size.id)) {
+          sizeMap.set(v.size.id, v.size);
+        }
+      });
+      const sizes = Array.from(sizeMap.values());
+
+      const colorToSizes: Record<number, number[]> = {};
+      const sizeToColors: Record<number, number[]> = {};
+      const colorImageMap: Record<number, string> = {};
+
+      pro.variants.forEach((v) => {
+        const c = v.color?.id;
+        const s = v.size?.id;
+
+        if (!c || !s) return;
+
+        if (!colorToSizes[c]) colorToSizes[c] = [];
+        if (!colorToSizes[c].includes(s)) {
+          colorToSizes[c].push(s);
+        }
+
+        if (!sizeToColors[s]) sizeToColors[s] = [];
+        if (!sizeToColors[s].includes(c)) {
+          sizeToColors[s].push(c);
+        }
+
+        if (!colorImageMap[c]) {
+          colorImageMap[c] = v.image_url || "";
+        }
+      });
+
+      const { name_product, category, image_url, ...rest } = pro;
+
+      const image = JSON.parse(image_url || "[]");
+
+      return {
+        ...rest,
+        name: name_product,
+        image_url: image[0],
+        category: { name: category?.name_category },
+        colors,
+        sizes,
+
+        variantMap: {
+          colorToSizes,
+          sizeToColors,
+          colorImageMap,
         },
-      },
-    },
-    orderBy: { sold: "desc" },
-    take: 10,
-  });
-
-  return products.map((pro) => {
-    // ===== COLORS =====
-    const colorMap = new Map<number, any>();
-    pro.variants.forEach((v) => {
-      if (v.color && !colorMap.has(v.color.id)) {
-        colorMap.set(v.color.id, v.color);
-      }
-    });
-    const colors = Array.from(colorMap.values());
-
-    // ===== SIZES =====
-    const sizeMap = new Map<number, any>();
-    pro.variants.forEach((v) => {
-      if (v.size && !sizeMap.has(v.size.id)) {
-        sizeMap.set(v.size.id, v.size);
-      }
-    });
-    const sizes = Array.from(sizeMap.values());
-
-    // ===== VARIANT MAP (🔥 QUAN TRỌNG) =====
-    const colorToSizes: Record<number, number[]> = {};
-    const sizeToColors: Record<number, number[]> = {};
-    const colorImageMap: Record<number, string> = {};
-
-    pro.variants.forEach((v) => {
-      const c = v.color?.id;
-      const s = v.size?.id;
-
-      if (!c || !s) return;
-
-      // color -> sizes
-      if (!colorToSizes[c]) colorToSizes[c] = [];
-      if (!colorToSizes[c].includes(s)) {
-        colorToSizes[c].push(s);
-      }
-
-      // size -> colors
-      if (!sizeToColors[s]) sizeToColors[s] = [];
-      if (!sizeToColors[s].includes(c)) {
-        sizeToColors[s].push(c);
-      }
-
-      // color -> image
-      if (!colorImageMap[c]) {
-        colorImageMap[c] = v.image_url || "";
-      }
-    });
-
-    const { name_product, category, image_url, ...rest } = pro;
-
-    const image = JSON.parse(image_url || "[]");
-
-    return {
-      ...rest,
-      name: name_product,
-      image_url: image[0],
-      category: { name: category?.name_category },
-      colors,
-      sizes,
-
-      // 🔥 FE chỉ cần dùng cái này
-      variantMap: {
-        colorToSizes,
-        sizeToColors,
-        colorImageMap,
-      },
-    };
-  });
+      };
+    }),
+    total,
+  };
 };
 
 const getProductBySlug = async (slug: string) => {
@@ -292,110 +332,143 @@ const getProductBySlug = async (slug: string) => {
   };
 };
 
-const getSaleProducts = async () => {
-  const products = await prisma.product.findMany({
-    where: {
-      sale: { isNot: null },
-    },
-    select: {
-      id: true,
-      name_product: true,
-      description: true,
-      image_url: true,
-      slug: true,
-      price: true,
-      createdAt: true,
+const getSaleProducts = async (
+  skip = 0,
+  take = 10,
+  filters: FilterType,
+  sort: SortType,
+) => {
+  const orderBy =
+    sort && sort in sortMap ? sortMap[sort as SortType] : { createdAt: "desc" };
 
-      category: { select: { name_category: true } },
+  const { minPrice, maxPrice, color, size } = filters;
+  const [products, total] = await Promise.all([
+    prisma.product.findMany({
+      orderBy,
+      take,
+      skip,
+      where: {
+        sale: { isNot: null },
+        price: { gte: minPrice ?? 0, lte: maxPrice ?? 999999999 },
+        ...(color || size
+          ? {
+              variants: {
+                some: {
+                  ...(color && { colorId: color }),
+                  ...(size && { sizeId: size }),
+                },
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        name_product: true,
+        description: true,
+        image_url: true,
+        slug: true,
+        price: true,
+        createdAt: true,
 
-      variants: {
-        select: {
-          id: true,
-          image_url: true,
-          color: { select: { id: true, hex: true, name_color: true } },
-          size: { select: { id: true, Symbol: true } },
-          stock: true,
+        category: { select: { name_category: true } },
+
+        variants: {
+          select: {
+            id: true,
+            image_url: true,
+            color: { select: { id: true, hex: true, name_color: true } },
+            size: { select: { id: true, Symbol: true } },
+            stock: true,
+          },
+        },
+
+        sale: {
+          select: {
+            discount_type: true,
+            discount_value: true,
+          },
         },
       },
+    }),
+    prisma.product.count({
+      where: {
+        sale: { isNot: null },
+      },
+    }),
+  ]);
 
-      sale: {
-        select: {
-          discount_type: true,
-          discount_value: true,
+  return {
+    data: products.map((pro) => {
+      // ===== COLORS =====
+      const colorMap = new Map<number, any>();
+      pro.variants.forEach((v) => {
+        if (v.color && !colorMap.has(v.color.id)) {
+          colorMap.set(v.color.id, v.color);
+        }
+      });
+      const colors = Array.from(colorMap.values());
+
+      // ===== SIZES =====
+      const sizeMap = new Map<number, any>();
+
+      pro.variants.forEach((v) => {
+        if (v.size && !sizeMap.has(v.size.id)) {
+          sizeMap.set(v.size.id, v.size);
+        }
+      });
+      const sizes = Array.from(sizeMap.values());
+
+      // ===== VARIANT MAP =====
+      const colorToSizes: Record<number, number[]> = {};
+      const sizeToColors: Record<number, number[]> = {};
+      const colorImageMap: Record<number, string> = {};
+
+      pro.variants.forEach((v) => {
+        const c = v.color?.id;
+        const s = v.size?.id;
+
+        if (!c || !s) return;
+
+        // color -> sizes
+        if (!colorToSizes[c]) colorToSizes[c] = [];
+        if (!colorToSizes[c].includes(s)) {
+          colorToSizes[c].push(s);
+        }
+
+        // size -> colors
+        if (!sizeToColors[s]) sizeToColors[s] = [];
+        if (!sizeToColors[s].includes(c)) {
+          sizeToColors[s].push(c);
+        }
+
+        // color -> image
+        if (!colorImageMap[c]) {
+          colorImageMap[c] = v.image_url || "";
+        }
+      });
+
+      const { name_product, category, image_url, ...rest } = pro;
+
+      const image = JSON.parse(image_url || "[]");
+
+      return {
+        ...rest,
+        name: name_product,
+        image_url: image[0],
+        category: { name: category?.name_category },
+
+        colors,
+        sizes,
+
+        variantMap: {
+          colorToSizes,
+          sizeToColors,
+          colorImageMap,
         },
-      },
-    },
-  });
-
-  return products.map((pro) => {
-    // ===== COLORS =====
-    const colorMap = new Map<number, any>();
-    pro.variants.forEach((v) => {
-      if (v.color && !colorMap.has(v.color.id)) {
-        colorMap.set(v.color.id, v.color);
-      }
-    });
-    const colors = Array.from(colorMap.values());
-
-    // ===== SIZES =====
-    const sizeMap = new Map<number, any>();
-
-    pro.variants.forEach((v) => {
-      if (v.size && !sizeMap.has(v.size.id)) {
-        sizeMap.set(v.size.id, v.size);
-      }
-    });
-    const sizes = Array.from(sizeMap.values());
-
-    // ===== VARIANT MAP =====
-    const colorToSizes: Record<number, number[]> = {};
-    const sizeToColors: Record<number, number[]> = {};
-    const colorImageMap: Record<number, string> = {};
-
-    pro.variants.forEach((v) => {
-      const c = v.color?.id;
-      const s = v.size?.id;
-
-      if (!c || !s) return;
-
-      // color -> sizes
-      if (!colorToSizes[c]) colorToSizes[c] = [];
-      if (!colorToSizes[c].includes(s)) {
-        colorToSizes[c].push(s);
-      }
-
-      // size -> colors
-      if (!sizeToColors[s]) sizeToColors[s] = [];
-      if (!sizeToColors[s].includes(c)) {
-        sizeToColors[s].push(c);
-      }
-
-      // color -> image
-      if (!colorImageMap[c]) {
-        colorImageMap[c] = v.image_url || "";
-      }
-    });
-
-    const { name_product, category, image_url, ...rest } = pro;
-
-    const image = JSON.parse(image_url || "[]");
-
-    return {
-      ...rest,
-      name: name_product,
-      image_url: image[0],
-      category: { name: category?.name_category },
-
-      colors,
-      sizes,
-
-      variantMap: {
-        colorToSizes,
-        sizeToColors,
-        colorImageMap,
-      },
-    };
-  });
+      };
+    }),
+    total,
+  };
 };
 
 const createProductVariant = async (data: ProductVariantType) =>

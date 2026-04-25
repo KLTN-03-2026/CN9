@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
+
 import bcrypt from "bcryptjs";
+
 import jwt from "jsonwebtoken";
 
 import userModel from "../models/userModel";
@@ -12,6 +14,7 @@ import {
 import { CreateUserType, UpdateUserType } from "../types/UserType";
 
 import { AuthenticatedRequest } from "../types/express";
+
 import { publishVerifyEmail } from "../services/rabbitmq/order/order.producer";
 
 const createUser = async (req: Request, res: Response) => {

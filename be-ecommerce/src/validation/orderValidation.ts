@@ -3,10 +3,6 @@ import OrderType, { OrderItemType, CreateOrderType } from "../types/OrderType";
 const orderValidation = (data: CreateOrderType) => {
   const errors: Partial<Record<keyof CreateOrderType, string>> = {};
 
-  if (!data.userId) {
-    errors.userId = "Vui lòng đăng nhập";
-  }
-
   if (!data.total_price) {
     errors.total_price = "Vui lòng nhập tổng tiền";
   }

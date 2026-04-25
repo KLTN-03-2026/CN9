@@ -4,6 +4,6 @@ import sizeController from "../../controllers/sizeController";
 
 const router = Router();
 
-router.get("/", verifyToken, sizeController.getSizes);
+router.get("/", sizeController.getSizes);
 
 export default router;

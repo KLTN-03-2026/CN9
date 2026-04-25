@@ -2,11 +2,7 @@ import { Request, Response } from "express";
 
 import paymentModel from "../models/paymentModel";
 
-import {
-  paymentValidation,
-  updatePaymentValidation,
-} from "../validation/paymentValidation";
-import { CreatePaymentType, UpdatePaymentType } from "../types/PaymentType";
+import { paymentValidation } from "../validation/paymentValidation";
 
 import crypto from "crypto";
 import querystring from "qs";

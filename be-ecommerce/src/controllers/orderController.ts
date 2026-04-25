@@ -16,10 +16,6 @@ const createOrder = async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthenticatedRequest).user?.userId;
 
-    if (!userId) {
-      return res.status(401).json({ message: "Vui lòng đăng nhập" });
-    }
-
     const {
       voucherId,
       totalPrice,
@@ -431,6 +427,7 @@ const returnOrderByUserId = async (req: Request, res: Response) => {
     return res.status(201).json({
       message: "Đã gửi yêu cầu trả đơn hàng thành công",
       type: "success",
+      data: updatedOrder,
     });
   } catch (error) {
     console.log(error);
@@ -453,10 +450,10 @@ const updateOrderStatusById = async (req: Request, res: Response) => {
       Number(orderId),
     );
 
-    if (updatedOrder.user?.email) {
+    if (updatedOrder.receiver_email) {
       publishOrderStatusUpdateEmail({
-        to: updatedOrder.user.email,
-        receiverName: updatedOrder.user.name,
+        to: updatedOrder.receiver_email,
+        receiverName: updatedOrder.receiver_name,
         orderId: updatedOrder.id,
         statusName: updatedOrder.status.name,
         statusHex: updatedOrder.status.hex,

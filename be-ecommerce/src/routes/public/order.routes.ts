@@ -6,7 +6,7 @@ import { orderLimiter } from "../../config/rateLimiter.config";
 
 const router = Router();
 
-router.post("/", verifyToken, orderLimiter, orderController.createOrder);
+router.post("/", orderLimiter, orderController.createOrder);
 
 router.get("/my-orders", verifyToken, orderController.getMyOrders);
 

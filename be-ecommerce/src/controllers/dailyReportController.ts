@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import dailyReportModel from "../models/dailyReportModel";
 
+const isValidDate = (d: Date) => d instanceof Date && !Number.isNaN(d.getTime());
+
 const generateYesterdayReport = async (req: Request, res: Response) => {
   try {
     const report = await dailyReportModel.generateYesterdayReport();
@@ -23,6 +25,9 @@ const getDailyReportsByDay = async (req: Request, res: Response) => {
     }
 
     const targetDate = new Date(date);
+    if (!isValidDate(targetDate)) {
+      return res.status(400).json({ message: "date không hợp lệ" });
+    }
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
 
@@ -55,7 +60,14 @@ const getDailyReportsByMonth = async (req: Request, res: Response) => {
     }
 
     const y = parseInt(year, 10);
-    const m = parseInt(month, 10) - 1;
+    const mInput = parseInt(month, 10);
+    if (Number.isNaN(y) || Number.isNaN(mInput)) {
+      return res.status(400).json({ message: "year hoặc month không hợp lệ" });
+    }
+    if (mInput < 1 || mInput > 12) {
+      return res.status(400).json({ message: "month phải từ 1 đến 12" });
+    }
+    const m = mInput - 1;
 
     const startOfMonth = new Date(y, m, 1);
     const endOfMonth = new Date(y, m + 1, 0, 23, 59, 59, 999);

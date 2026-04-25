@@ -6,9 +6,8 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import http from "http";
-import { Server } from "socket.io";
-// import initSocket from "./socket/index";
 import apiRouter from "./routes/api";
+import passport from "./config/passport.config";
 
 import { initRabbitMQ } from "./services/rabbitmq/connection";
 import orderConsumer from "./services/rabbitmq/order/order.consumer";
@@ -19,16 +18,19 @@ import userConsumer from "./services/rabbitmq/user/user.consumer";
 const app = express();
 const server = http.createServer(app);
 
-// initSocket(server);
-
-// Middleware
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(passport.initialize());
 
 app.use(
   cors({
-    origin: ["http://localhost:5174", "http://localhost:5173"],
+    origin: [
+      "http://localhost:5174",
+      "http://localhost:5173",
+      "http://localhost:5175",
+      "http://localhost:3001",
+    ],
     credentials: true,
   }),
 );

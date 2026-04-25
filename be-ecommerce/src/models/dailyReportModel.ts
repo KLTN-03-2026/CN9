@@ -1,6 +1,8 @@
 import { endOfYesterday, startOfYesterday } from "date-fns";
 import prisma from "../PrismaClient";
 
+const isValidDate = (d: Date) => d instanceof Date && !Number.isNaN(d.getTime());
+
 const generateYesterdayReport = async () => {
   const start = startOfYesterday();
   const end = endOfYesterday();
@@ -60,9 +62,17 @@ const generateYesterdayReport = async () => {
 };
 
 export const getDailyReportsByRange = async (start: Date, end: Date) => {
+  // Guard: tránh Prisma throw khi start/end bị parse lỗi (Invalid Date).
+  if (!isValidDate(start) || !isValidDate(end)) {
+    return [];
+  }
+
+  const rangeStart = start.getTime() <= end.getTime() ? start : end;
+  const rangeEnd = start.getTime() <= end.getTime() ? end : start;
+
   const dailyReports = await prisma.dailyReport.findMany({
     where: {
-      report_date: { gte: start, lte: end },
+      report_date: { gte: rangeStart, lte: rangeEnd },
     },
   });
 
